@@ -35,154 +35,65 @@ struct AudioVisualizerView: View {
             )
             .ignoresSafeArea()
             
-            VStack(spacing: 20) {
-                // Header
-                VStack(spacing: 8) {
-                    Text("Audio Constellation")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                    
-                    Text("Real-time audio fingerprint visualization")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                    
-                    Text("Inspired by Shazam's star constellation approach")
-                        .font(.caption)
-                        .foregroundColor(.gray.opacity(0.8))
-                        .italic()
-                }
-                .padding(.top, 20)
-                
-                // Metal constellation view
-                if hasPermission && isInitialized {
-                    ConstellationMetalView(renderer: renderer)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
-                        .padding(.horizontal, 20)
-                } else {
-                    // Placeholder view
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.black.opacity(0.3))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        
-                        VStack(spacing: 16) {
-                            Image(systemName: permissionStatus == .denied ? "mic.slash.circle" : "waveform.circle")
-                                .font(.system(size: 60))
-                                .foregroundColor(.white.opacity(0.6))
-                            
-                            switch permissionStatus {
-                            case .undetermined:
-                                Text("Microphone access needed")
-                                    .font(.title2)
+            // Main constellation view
+            if hasPermission && isInitialized {
+                ConstellationMetalView(renderer: renderer)
+                    .ignoresSafeArea()
+                    .overlay(alignment: .bottomTrailing) {
+                        // Status overlay
+                        VStack(alignment: .trailing, spacing: 4) {
+                            if audioProcessor.isRecording {
+                                Text("Recording")
                                     .foregroundColor(.white)
+                                    .padding(6)
+                                    .background(.red.opacity(0.6))
+                                    .cornerRadius(6)
                                 
-                                Text("Tap below to enable microphone access and start visualizing audio")
-                                    .font(.body)
+                                Text("Peaks: \(peakFinder.currentPeaks.count)")
+                                    .font(.caption)
                                     .foregroundColor(.gray)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
                                 
-                                Button("Enable Microphone") {
-                                    requestMicrophonePermission()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.large)
-                                
-                            case .denied:
-                                Text("Microphone access denied")
-                                    .font(.title2)
-                                    .foregroundColor(.white)
-                                
-                                Text("Please enable microphone access in Settings to visualize audio as star constellations")
-                                    .font(.body)
+                                Text("Constellation: \(peakFinder.constellation.count)")
+                                    .font(.caption)
                                     .foregroundColor(.gray)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
-                                
-                                Button("Open Settings") {
-                                    openSettings()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.large)
-                                
-                            case .granted:
-                                Text("Initializing...")
-                                    .font(.title2)
-                                    .foregroundColor(.white)
-                                
-                                ProgressView()
-                                    .scaleEffect(1.2)
-                                    .tint(.white)
-                                
-                            @unknown default:
-                                Text("Unknown permission state")
-                                    .font(.title2)
-                                    .foregroundColor(.white)
                             }
                         }
+                        .padding()
                     }
-                    .padding(.horizontal, 20)
-                }
-                
-                // Controls
-                HStack(spacing: 30) {
-                    // Record button
-                    Button(action: toggleRecording) {
-                        ZStack {
-                            Circle()
-                                .fill(audioProcessor.isRecording ? Color.red : Color.green)
-                                .frame(width: 80, height: 80)
-                                .scaleEffect(audioProcessor.isRecording ? 1.1 : 1.0)
-                                .animation(.easeInOut(duration: 0.1), value: audioProcessor.isRecording)
-                            
-                            Image(systemName: audioProcessor.isRecording ? "stop.fill" : "mic.fill")
-                                .font(.system(size: 30))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .disabled(!hasPermission)
-                    .opacity(hasPermission ? 1.0 : 0.5)
+            } else {
+                // Minimal permission overlay
+                VStack(spacing: 16) {
+                    Image(systemName: permissionStatus == .denied ? "mic.slash.circle" : "waveform.circle")
+                        .font(.system(size: 40))
+                        .foregroundColor(.white.opacity(0.6))
                     
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(audioProcessor.isRecording ? "Recording..." : hasPermission ? "Tap to start" : "Enable microphone first")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                        
-                        if audioProcessor.isRecording {
-                            Text("Peaks: \(peakFinder.currentPeaks.count)")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            
-                            Text("Constellation: \(peakFinder.constellation.count)")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        } else if hasPermission {
-                            Text("Listen to music or make sounds")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        } else {
-                            Text("Microphone permission required")
-                                .font(.caption)
-                                .foregroundColor(.red.opacity(0.8))
+                    if permissionStatus == .undetermined {
+                        Button("Enable Microphone") {
+                            requestMicrophonePermission()
                         }
+                        .buttonStyle(.borderedProminent)
+                    } else if permissionStatus == .denied {
+                        Button("Open Settings") {
+                            openSettings()
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
-                .padding(.bottom, 30)
             }
         }
         .onAppear {
             setupComponents()
             checkMicrophonePermission()
         }
+        .onChange(of: permissionStatus) { newValue in
+            if newValue == .granted {
+                // Auto-start recording when permission is granted
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    audioProcessor.startRecording()
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            // Check permission status when app returns to foreground
             checkMicrophonePermission()
         }
         .alert("Microphone Access Required", isPresented: $showingPermissionAlert) {

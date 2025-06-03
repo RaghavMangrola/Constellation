@@ -37,6 +37,87 @@ Discovered that previous attempts were still too C++-like and needed proper Meta
 
 4. Reverted to C++-style comments (`//`) which are actually preferred in Metal
 
+## Viewport Coordinate Mapping Issue
+
+### Problem Discovery
+After fixing compilation issues, discovered a coordinate distribution problem:
+- Audio peaks were being mapped to coordinates correctly in Swift
+- Coordinates showed correct ranges (e.g., -0.9 to +0.9 for NDC)
+- However, visual rendering still showed clustering at screen center
+- Debug logs confirmed 200 vertices with proper coordinate spread
+
+### Debugging Approach
+1. **Added position-based debug coloring**: Red = X position, Green = Y position, Blue = fixed
+2. **Increased point sizes**: 100-150px to ensure visibility
+3. **Simplified fragment shader**: Removed complex star patterns for basic visibility
+4. **Added coordinate logging**: Tracked ranges being sent to Metal
+
+### Root Cause Analysis
+The issue was **not** in coordinate calculation but in coordinate space interpretation:
+- Swift calculated correct coordinate ranges
+- Metal received correct vertex data  
+- Problem was in coordinate space transformation within shaders
+
+### Solution Progression
+
+#### Attempt 1: NDC Coordinate Fixes (-0.9 to +0.9)
+```swift
+let x = (remappedFreq - 0.5) * 1.8  // -0.9 to +0.9
+let y = (remappedMag - 0.5) * 1.6   // -0.8 to +0.8
+```
+**Result**: Still clustered despite correct ranges
+
+#### Attempt 2: Exaggerated Coordinates (-4 to +4)
+```swift
+let frequencySpread = 8.0   // Range: -4 to +4
+let magnitudeSpread = 6.0   // Range: -3 to +3
+```
+```metal
+float normalizedX = clamp(vert.position.x / 4.0, -1.0, 1.0);
+float normalizedY = clamp(vert.position.y / 3.0, -1.0, 1.0);
+```
+**Result**: Visible improvement but still not full viewport usage
+
+#### Attempt 3: Massive Viewport Pixel Mapping (-11 to +11)
+```swift
+let frequencySpread = 20.0   // Range: -10 to +10
+let magnitudeSpread = 15.0   // Range: -7.5 to +7.5
+```
+```metal
+// Map to pixel coordinates then convert to NDC
+float pixelX = (vert.position.x + 10.0) * (uniforms.viewportSize.x / 20.0);
+float pixelY = (vert.position.y + 7.5) * (uniforms.viewportSize.y / 15.0);
+float ndcX = (pixelX / uniforms.viewportSize.x) * 2.0 - 1.0;
+float ndcY = (pixelY / uniforms.viewportSize.y) * 2.0 - 1.0;
+```
+
+**Current Status**: 
+- Coordinate ranges: X: -11.8 to +10.9, Y: -8.3 to +9.5
+- Visible distribution improvement
+- **Still not using entire viewport** - suggests mapping ranges need adjustment
+
+### Current Issue: Incomplete Viewport Usage
+Despite massive coordinate ranges (-11.8 to +10.9), the stars are still not distributed across the full viewport. This suggests:
+
+1. **Coordinate mapping ranges might be insufficient** for the viewport size (1206x2622)
+2. **Transform logic in Metal shader** might need adjustment
+3. **Aspect ratio considerations** might be affecting distribution
+4. **Y-axis flipping** might be causing positioning issues
+
+### Next Steps
+1. **Increase coordinate ranges further** to ensure full viewport coverage
+2. **Verify pixel-to-NDC conversion math** in Metal shader
+3. **Add debug output for final NDC coordinates** sent to Metal
+4. **Consider direct pixel coordinate rendering** instead of NDC conversion
+5. **Test with fixed test coordinates** at viewport corners to verify mapping
+
+### Lessons Learned
+1. **Coordinate space issues** can be subtle and require aggressive debugging
+2. **Metal coordinate transformation** needs careful consideration of viewport dimensions
+3. **Exaggerated coordinates** are useful for debugging space transformation issues
+4. **Debug coloring** is invaluable for visualizing coordinate distribution
+5. **Large point sizes** are essential for debugging visibility on high-DPI displays
+
 ## Key Learnings
 1. Metal, while similar to C++, has its own specific requirements:
    - Strict memory space qualifiers (`device`, `constant`, `thread`, `threadgroup`)
@@ -61,12 +142,17 @@ The shader now compiles successfully with proper Metal syntax while maintaining 
 - Texture coordinate generation
 - Fragment shader star shape and glow effects
 
+**Coordinate Distribution**: Significantly improved with massive coordinate ranges, but still working on full viewport utilization.
+
 ## Future Considerations
 1. Always use Metal-specific types for vertex attributes
 2. Follow Metal parameter ordering conventions
 3. Use appropriate address space qualifiers
 4. Maintain proper memory alignment with packed types
 5. Follow Metal best practices for buffer access
+6. **Consider coordinate space carefully** - NDC vs pixel space vs custom ranges
+7. **Use aggressive debugging techniques** for spatial distribution issues
+8. **Test coordinate extremes** to verify proper viewport coverage
 
 ## Current Error Messages
 ```

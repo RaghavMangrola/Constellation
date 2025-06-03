@@ -1,88 +1,103 @@
 #include <metal_stdlib>
-#include <simd/simd.h>
 using namespace metal;
 
-/* Input vertex structure for star points */
+// Vertex structure matching Swift StarVertex
 struct StarVertex {
-    packed_float2 position;    /* Position in normalized coordinates */
-    packed_float4 color;       /* RGBA color (frequency-based) */
-    float size;               /* Star size based on magnitude */
-    float age;                /* Age of the peak (0.0 to 1.0) */
+    float2 position [[attribute(0)]];
+    float4 color [[attribute(1)]];
+    float size [[attribute(2)]];
+    float age [[attribute(3)]];
 };
 
-/* Uniform buffer for global parameters */
+// Uniforms matching Swift structure
 struct Uniforms {
-    float4x4 projectionMatrix;  /* View-projection matrix */
-    float time;                 /* Current time for animations */
-    float fadeTime;            /* Total fade duration */
-    float2 viewportSize;       /* Viewport dimensions */
+    float4x4 projectionMatrix;
+    float time;
+    float fadeTime;
+    float2 viewportSize;
 };
 
-/* Vertex shader output structure */
+// Vertex shader output
 struct VertexOut {
-    float4 position [[position]];  /* Clip space position */
-    float4 color;                  /* Star color */
-    float2 texCoord;              /* Texture coordinates for star shape */
-    float alpha;                  /* Final alpha value */
-    float age;                    /* Peak age for fade effects */
+    float4 position [[position]];
+    float4 color;
+    float2 pointCoord;
+    float pointSize [[point_size]];
 };
 
-/* Vertex shader for star points */
+// Vertex shader
 vertex VertexOut star_vertex_shader(
     uint vertexID [[vertex_id]],
-    constant StarVertex *vertices [[buffer(0)]],
-    constant Uniforms &uniforms [[buffer(1)]]
+    constant StarVertex* vertices [[buffer(0)]],
+    constant Uniforms& uniforms [[buffer(1)]]
 ) {
+    StarVertex vert = vertices[vertexID];
     VertexOut out;
     
-    StarVertex vert = vertices[vertexID];
+    // PROPER coordinate transformation from Swift coordinate space to NDC
+    // Swift sends coordinates in range roughly -25 to +25 for X and Y
+    // We need to map these to NDC space (-1 to +1)
     
-    /* Apply projection matrix */
-    out.position = uniforms.projectionMatrix * float4(vert.position, 0.0, 1.0);
+    // Define the coordinate ranges that Swift is using
+    float coordRangeX = 50.0;  // Swift uses frequencySpread = 50.0, so range is -25 to +25
+    float coordRangeY = 40.0;  // Swift uses magnitudeSpread = 40.0, so range is -20 to +20
     
-    /* Calculate texture coordinates for star shape */
-    out.texCoord = vert.position;
+    // Convert from Swift coordinate space to NDC (-1 to +1)
+    float ndcX = (vert.position.x / (coordRangeX * 0.5));  // Divide by half-range to get -1 to +1
+    float ndcY = (vert.position.y / (coordRangeY * 0.5));  // Divide by half-range to get -1 to +1
     
-    /* Calculate age-based fade */
+    // Clamp to ensure we stay within valid NDC range
+    ndcX = clamp(ndcX, -1.0, 1.0);
+    ndcY = clamp(ndcY, -1.0, 1.0);
+    
+    // Flip Y coordinate for Metal's coordinate system (top-left origin)
+    ndcY = -ndcY;
+    
+    out.position = float4(ndcX, ndcY, 0.0, 1.0);
+    
+    // Pass through color with age-based fade
     float ageFade = 1.0 - (vert.age / uniforms.fadeTime);
-    
-    /* Add subtle pulsing effect based on time and age */
     float pulse = 0.8 + 0.2 * sin(uniforms.time * 3.0 + vert.position.x * 10.0);
-    pulse *= ageFade;  /* Reduce pulse intensity as star ages */
-    
-    /* Set color and alpha */
     out.color = vert.color;
-    out.alpha = vert.color.a * pulse * ageFade;
-    out.age = vert.age;
+    out.color.a *= ageFade * pulse;
+    
+    // Calculate point size based on viewport and magnitude
+    float baseSize = 20.0;  // Base size in pixels
+    float sizeScale = min(uniforms.viewportSize.x, uniforms.viewportSize.y) / 1000.0;  // Scale based on viewport
+    out.pointSize = baseSize * sizeScale * (0.5 + vert.size * 2.0);  // Adjust size based on magnitude
+    
+    // Pass through coordinates for fragment shader
+    out.pointCoord = vert.position;
     
     return out;
 }
 
-/* Fragment shader for star rendering */
-fragment float4 star_fragment_shader(VertexOut in [[stage_in]]) {
-    /* Create star-like shape using distance field */
-    float2 pos = in.texCoord;
-    float dist = length(pos);
+// Fragment shader
+fragment float4 star_fragment_shader(
+    VertexOut in [[stage_in]],
+    float2 pointCoord [[point_coord]]
+) {
+    // Calculate distance from center of point sprite
+    float2 coord = pointCoord * 2.0 - 1.0;
+    float dist = length(coord);
     
-    /* Create star shape with multiple rays */
-    float angle = atan2(pos.y, pos.x);
-    float rays = 6.0;  /* Number of star rays */
-    float rayIntensity = 0.5 + 0.5 * cos(angle * rays);
+    // Create star shape
+    float angle = atan2(coord.y, coord.x);
+    float numRays = 6.0;
+    float rayMask = 0.5 + 0.5 * cos(angle * numRays);
     
-    /* Combine circular and ray patterns */
-    float starShape = smoothstep(0.02, 0.01, dist) + 
-                     smoothstep(0.008, 0.003, dist * rayIntensity);
+    // Combine circular and ray patterns
+    float star = smoothstep(1.0, 0.5, dist);
+    float rayPattern = smoothstep(1.0, 0.2, dist * (1.0 - rayMask * 0.5));
     
-    /* Add glow effect that intensifies with age */
-    float glowIntensity = 0.3 + 0.2 * (1.0 - in.age);  /* More glow for newer stars */
-    float glow = exp(-dist * 40.0) * glowIntensity;
+    // Add glow
+    float glow = exp(-dist * 3.0) * 0.3;
     
-    /* Combine all effects */
-    float totalIntensity = clamp(starShape + glow, 0.0, 1.0);
+    // Combine all effects
+    float brightness = star + rayPattern + glow;
     
-    /* Apply color and alpha */
+    // Output final color
     float4 color = in.color;
-    color.a *= totalIntensity * in.alpha;
-    
+    color.a *= brightness;
     return color;
 } 

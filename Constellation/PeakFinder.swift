@@ -9,6 +9,7 @@
 import Foundation
 import Accelerate
 import QuartzCore
+import os
 
 struct Peak {
     let frequency: Double    // Hz
@@ -41,7 +42,10 @@ class PeakFinder: ObservableObject {
     
     // Time-based constellation management
     private let peakFadeTime: Double = 3.0    // seconds before peak fades from constellation
-    private var peakHistory: [(peak: Peak, timestamp: Double)] = []
+    private var peakHistory: [(peak:    Peak, timestamp: Double)] = []
+    
+    // Logger instance for peak detection
+    private let logger = Logger(subsystem: "com.constellation.audio", category: "PeakFinder")
     
     weak var audioProcessor: AudioProcessor?
     
@@ -82,6 +86,12 @@ class PeakFinder: ObservableObject {
         detectedPeaks.sort { $0.magnitude > $1.magnitude }
         let topPeaks = Array(detectedPeaks.prefix(maxPeaksPerFrame))
         
+        // Debug log peak detection
+        logger.debug("Detected \(detectedPeaks.count) peaks, using top \(topPeaks.count)")
+        for (i, peak) in topPeaks.enumerated() {
+            logger.debug("Peak \(i): freq=\(Int(peak.frequency))Hz, mag=\(peak.magnitude)dB, pos=(\(peak.normalizedFrequency), \(peak.normalizedMagnitude))")
+        }
+        
         // Update current peaks for immediate visualization
         currentPeaks = topPeaks
         
@@ -95,16 +105,26 @@ class PeakFinder: ObservableObject {
         
         // Update constellation for rendering
         updateConstellation()
+        
+        // Debug log constellation
+        logger.debug("Constellation size: \(self.constellation.count)")
     }
     
     private func cleanupOldPeaks(currentTime: Double) {
+        let oldCount = peakHistory.count
         peakHistory.removeAll { entry in
             currentTime - entry.timestamp > peakFadeTime
+        }
+        let removedCount = oldCount - peakHistory.count
+        if removedCount > 0 {
+            logger.debug("Cleaned up \(removedCount) old peaks")
         }
         
         // Also limit total number of peaks for performance
         if peakHistory.count > constellationHistory {
-            peakHistory.removeFirst(peakHistory.count - constellationHistory)
+            let excessCount = peakHistory.count - constellationHistory
+            peakHistory.removeFirst(excessCount)
+            logger.debug("Removed \(excessCount) excess peaks to maintain history limit")
         }
     }
     

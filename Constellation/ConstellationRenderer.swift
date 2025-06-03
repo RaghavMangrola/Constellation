@@ -10,22 +10,26 @@ import Metal
 import MetalKit
 import SwiftUI
 import simd
+import os
 
 // Vertex structure for Metal rendering
 struct StarVertex {
     let position: simd_float2
     let color: simd_float4
     let size: Float
+    let age: Float  // Add age parameter to match shader
 }
 
 // Uniforms for shader
 struct Uniforms {
     var projectionMatrix: simd_float4x4
     var time: Float
+    var fadeTime: Float     // Add fadeTime parameter
+    var viewportSize: simd_float2  // Add viewport size
 }
 
 @MainActor
-class ConstellationRenderer: NSObject, ObservableObject {
+class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
     private var device: MTLDevice!
     private var commandQueue: MTLCommandQueue!
     private var renderPipelineState: MTLRenderPipelineState!
@@ -36,17 +40,26 @@ class ConstellationRenderer: NSObject, ObservableObject {
     private let maxStars = 1000
     private var currentVertexCount = 0
     private var startTime: Double = 0
+    private let basePointSize: Float = 10.0  // Add base point size
     
-    // Color palettes for different frequency ranges
+    // Color palettes for different frequency ranges - cosmic theme
     private let colorPalette: [simd_float4] = [
-        simd_float4(0.8, 0.9, 1.0, 1.0),   // Blue-white (high freq)
-        simd_float4(1.0, 1.0, 0.8, 1.0),   // Yellow-white (mid-high freq)
-        simd_float4(1.0, 0.8, 0.6, 1.0),   // Orange (mid freq)
-        simd_float4(1.0, 0.6, 0.4, 1.0),   // Red-orange (low-mid freq)
-        simd_float4(0.8, 0.4, 0.6, 1.0),   // Purple-red (low freq)
+        simd_float4(0.9, 0.95, 1.0, 1.0),   // Brilliant white (high freq)
+        simd_float4(0.8, 0.9, 1.0, 1.0),    // Blue-white (high-mid freq)
+        simd_float4(1.0, 1.0, 0.9, 1.0),    // Warm white (mid freq)
+        simd_float4(1.0, 0.8, 0.6, 1.0),    // Golden orange (mid-low freq)
+        simd_float4(1.0, 0.6, 0.4, 1.0),    // Orange-red (low-mid freq)
+        simd_float4(0.9, 0.5, 0.7, 1.0),    // Pink-red (low freq)
+        simd_float4(0.7, 0.4, 0.9, 1.0),    // Purple (very low freq)
     ]
     
     weak var peakFinder: PeakFinder?
+    
+    // Logger instance for rendering
+    private let logger = Logger(subsystem: "com.constellation.graphics", category: "Renderer")
+    
+    // Add peaksWithFade property
+    private var peaksWithFade: [(peak: Peak, fade: Float)] = []
     
     override init() {
         super.init()
@@ -102,6 +115,30 @@ class ConstellationRenderer: NSObject, ObservableObject {
         pipelineDescriptor.fragmentFunction = fragmentFunc
         pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
         
+        // Enable point sprites and set size
+        let vertexDescriptor = MTLVertexDescriptor()
+        vertexDescriptor.attributes[0].format = .float2
+        vertexDescriptor.attributes[0].offset = 0
+        vertexDescriptor.attributes[0].bufferIndex = 0
+        
+        vertexDescriptor.attributes[1].format = .float4
+        vertexDescriptor.attributes[1].offset = MemoryLayout<SIMD2<Float>>.stride
+        vertexDescriptor.attributes[1].bufferIndex = 0
+        
+        vertexDescriptor.attributes[2].format = .float
+        vertexDescriptor.attributes[2].offset = MemoryLayout<SIMD2<Float>>.stride + MemoryLayout<SIMD4<Float>>.stride
+        vertexDescriptor.attributes[2].bufferIndex = 0
+        
+        vertexDescriptor.attributes[3].format = .float
+        vertexDescriptor.attributes[3].offset = MemoryLayout<SIMD2<Float>>.stride + MemoryLayout<SIMD4<Float>>.stride + MemoryLayout<Float>.stride
+        vertexDescriptor.attributes[3].bufferIndex = 0
+        
+        vertexDescriptor.layouts[0].stride = MemoryLayout<StarVertex>.stride
+        vertexDescriptor.layouts[0].stepRate = 1
+        vertexDescriptor.layouts[0].stepFunction = .perVertex
+        
+        pipelineDescriptor.vertexDescriptor = vertexDescriptor
+        
         // Enable blending for alpha transparency
         pipelineDescriptor.colorAttachments[0].isBlendingEnabled = true
         pipelineDescriptor.colorAttachments[0].rgbBlendOperation = .add
@@ -118,65 +155,155 @@ class ConstellationRenderer: NSObject, ObservableObject {
         }
     }
     
-    func updateVertices(with peaks: [(peak: Peak, alpha: Float)]) {
+    private func updateVertexBuffer(with peaks: [(peak: Peak, fade: Float)]) {
         let vertexBufferPointer = vertexBuffer.contents().bindMemory(to: StarVertex.self, capacity: maxStars)
         
-        currentVertexCount = min(peaks.count, maxStars)
+        self.currentVertexCount = min(peaks.count, maxStars)
         
-        for (index, peakData) in peaks.enumerated() {
+        logger.debug("Updating \(self.currentVertexCount) vertices")
+        
+        // First pass: find actual min/max ranges in the data
+        var minFreq: Float = 1.0, maxFreq: Float = 0.0
+        var minMag: Float = 1.0, maxMag: Float = 0.0
+        
+        for peakWithFade in peaks {
+            let peak = peakWithFade.peak
+            minFreq = min(minFreq, peak.normalizedFrequency)
+            maxFreq = max(maxFreq, peak.normalizedFrequency)
+            minMag = min(minMag, peak.normalizedMagnitude)  
+            maxMag = max(maxMag, peak.normalizedMagnitude)
+        }
+        
+        // Add small padding to avoid division by zero
+        let freqRange = max(0.1, maxFreq - minFreq)
+        let magRange = max(0.1, maxMag - minMag)
+        
+        logger.debug("Actual ranges - Freq: \(minFreq)-\(maxFreq) (\(freqRange)), Mag: \(minMag)-\(maxMag) (\(magRange))")
+        
+        // Track final position ranges for debugging
+        var minX: Float = 1.0, maxX: Float = -1.0
+        var minY: Float = 1.0, maxY: Float = -1.0
+        
+        for (index, peakWithFade) in peaks.enumerated() {
             guard index < maxStars else { break }
             
-            let peak = peakData.peak
-            let alpha = peakData.alpha
+            let peak = peakWithFade.peak
+            let fade = peakWithFade.fade
             
-            // Convert frequency and magnitude to normalized coordinates
-            let x = peak.normalizedFrequency * 2.0 - 1.0  // -1 to 1
-            let y = peak.normalizedMagnitude * 2.0 - 1.0  // -1 to 1
+            // Remap frequency and magnitude to full 0-1 range based on actual data
+            let remappedFreq = (peak.normalizedFrequency - minFreq) / freqRange
+            let remappedMag = (peak.normalizedMagnitude - minMag) / magRange
             
-            // Choose color based on frequency
+            // Now apply coordinate transformation to FULL VIEWPORT PIXEL SPACE
+            let frequencySpread = 50.0   // This will create range -25 to +25
+            let magnitudeSpread = 40.0   // This will create range -20 to +20
+            
+            // Map to coordinates that span the full expected range
+            var x = (remappedFreq - 0.5) * Float(frequencySpread)
+            var y = (remappedMag - 0.5) * Float(magnitudeSpread)
+            
+            // Add controlled randomness for natural distribution
+            let seedX = sin(Float(index) * 0.1 + peak.normalizedFrequency * 10.0) * 3.0
+            let seedY = cos(Float(index) * 0.1 + peak.normalizedMagnitude * 8.0) * 3.0
+            
+            x += seedX
+            y += seedY
+            
+            // These coordinates will be properly mapped by the Metal shader
+            // X range: approximately -28 to +28
+            // Y range: approximately -23 to +23
+            // Metal shader will map these to full NDC space (-1 to +1)
+            
+            // Track ranges
+            minX = min(minX, x)
+            maxX = max(maxX, x)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+            
+            logger.trace("Star \(index): original(\(peak.normalizedFrequency), \(peak.normalizedMagnitude)) -> remapped(\(remappedFreq), \(remappedMag)) -> pos(\(x), \(y))")
+            
+            // Choose color based on original frequency
             let colorIndex = Int(peak.normalizedFrequency * Float(colorPalette.count - 1))
             var color = colorPalette[min(colorIndex, colorPalette.count - 1)]
-            color.w = alpha // Apply fade alpha
             
-            // Size based on magnitude
-            let size = 0.01 + peak.normalizedMagnitude * 0.02
+            // Add some color variation for more realistic stars
+            let variation = sin(Float(index) * 0.3) * 0.1
+            color.x = min(1.0, max(0.3, color.x + variation))
+            color.y = min(1.0, max(0.3, color.y + variation * 0.5))
+            color.z = min(1.0, max(0.3, color.z + variation * 0.8))
+            color.w = fade // Apply fade alpha
+            
+            // Enhanced size calculation based on magnitude and frequency
+            let baseMagnitude = peak.normalizedMagnitude
+            let frequencyBoost = (1.0 - peak.normalizedFrequency) * 0.3 // Lower freq = bigger stars
+            let size = 0.015 + baseMagnitude * 0.04 + frequencyBoost * 0.02
+            
+            // Calculate age (0.0 = new, 1.0 = old)
+            let age = 1.0 - fade
             
             vertexBufferPointer[index] = StarVertex(
                 position: simd_float2(x, y),
                 color: color,
-                size: size
+                size: size,
+                age: age
             )
         }
+        
+        logger.debug("Final position ranges - X: \(minX) to \(maxX), Y: \(minY) to \(maxY)")
     }
     
-    func render(in view: MTKView) {
+    func updatePeaks(_ peaks: [(peak: Peak, fade: Float)]) {
+        self.peaksWithFade = peaks
+        logger.debug("Got \(self.peaksWithFade.count) peaks with fade")
+    }
+    
+    func draw(in view: MTKView) {
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let renderPassDescriptor = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable else {
+            logger.error("Failed to create Metal command buffer or drawable")
             return
         }
         
         // Update vertex data from peak finder
         if let peakFinder = peakFinder {
-            let peaksWithFade = peakFinder.getConstellationWithFade()
-            updateVertices(with: peaksWithFade)
+            let peaks = peakFinder.getConstellationWithFade()
+            // Convert alpha to fade in the peaks array
+            let peaksWithFade = peaks.map { (peak: $0.peak, fade: $0.alpha) }
+            updateVertexBuffer(with: peaksWithFade)
+            
+            // DEBUG: Log first few vertex positions being sent to Metal
+            if self.currentVertexCount > 0 {
+                let vertexBufferPointer = vertexBuffer.contents().bindMemory(to: StarVertex.self, capacity: maxStars)
+                logger.debug("First 5 vertices sent to Metal:")
+                for i in 0..<min(5, self.currentVertexCount) {
+                    let vertex = vertexBufferPointer[i]
+                    logger.debug("  Vertex \(i): pos=(\(vertex.position.x), \(vertex.position.y)), size=\(vertex.size)")
+                }
+            }
         }
         
-        // Update uniforms
+        // Update uniforms with all required parameters
         let uniforms = Uniforms(
             projectionMatrix: matrix_identity_float4x4,
-            time: Float(CACurrentMediaTime() - startTime)
+            time: Float(CACurrentMediaTime() - startTime),
+            fadeTime: 3.0,  // Match PeakFinder's fade time
+            viewportSize: simd_float2(Float(view.drawableSize.width),
+                                    Float(view.drawableSize.height))
         )
+        
+        logger.debug("Viewport size: \(uniforms.viewportSize), Drawing \(self.currentVertexCount) stars")
         
         uniformBuffer.contents().copyMemory(
             from: [uniforms],
             byteCount: MemoryLayout<Uniforms>.stride
         )
         
-        // Clear background to dark blue/black
-        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0.05, green: 0.05, blue: 0.1, alpha: 1.0)
+        // Clear background to deep space black
+        renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
         
         guard let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+            logger.error("Failed to create Metal render encoder")
             return
         }
         
@@ -185,13 +312,21 @@ class ConstellationRenderer: NSObject, ObservableObject {
         renderEncoder.setVertexBuffer(uniformBuffer, offset: 0, index: 1)
         
         // Draw stars as points
-        if currentVertexCount > 0 {
-            renderEncoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: currentVertexCount)
+        if self.currentVertexCount > 0 {
+            logger.debug("Actually drawing \(self.currentVertexCount) points via Metal")
+            renderEncoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: self.currentVertexCount)
+        } else {
+            logger.warning("No vertices to draw!")
         }
         
         renderEncoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+    
+    // Add required MTKViewDelegate method
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        // Handle resize if needed
     }
 }
 
@@ -207,6 +342,10 @@ struct ConstellationMetalView: UIViewRepresentable {
         metalView.enableSetNeedsDisplay = false
         metalView.isPaused = false
         metalView.backgroundColor = UIColor.clear
+        
+        // Enable point sprites
+        metalView.sampleCount = 1
+        metalView.colorPixelFormat = .bgra8Unorm
         
         return metalView
     }
@@ -232,7 +371,7 @@ struct ConstellationMetalView: UIViewRepresentable {
         }
         
         func draw(in view: MTKView) {
-            renderer.render(in: view)
+            renderer.draw(in: view)
         }
     }
 } 

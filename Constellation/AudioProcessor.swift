@@ -9,6 +9,7 @@
 import AVFoundation
 import Accelerate
 import Foundation
+import os
 
 @MainActor
 class AudioProcessor: ObservableObject {
@@ -17,6 +18,9 @@ class AudioProcessor: ObservableObject {
     private let fftSetup: FFTSetup
     private let bufferSize: Int = AudioConstants.Format.bufferSize
     private let sampleRate: Double = AudioConstants.Format.defaultSampleRate
+    
+    // Logger instance for audio processing
+    private let logger = Logger(subsystem: "com.constellation.audio", category: "AudioProcessor")
     
     @Published var magnitudeSpectrum: [Float] = []
     @Published var isRecording = false
@@ -60,31 +64,25 @@ class AudioProcessor: ObservableObject {
             try audioSession.setActive(true)
             try audioSession.setPreferredSampleRate(AudioConstants.Format.defaultSampleRate)
         } catch {
-            print("Failed to set up audio session: \(error)")
+            logger.error("Failed to set up audio session: \(error.localizedDescription)")
         }
     }
     
     func startRecording() {
-        guard !isRecording else { return }
-        
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        let recordingFormat = AVAudioFormat(
-            standardFormatWithSampleRate: sampleRate,
-            channels: UInt32(AudioConstants.Format.channelCount)
-        )!
-        
-        print("Input hardware format: \(inputFormat.description)")
-        print("Client format: \(recordingFormat.description)")
-        
-        inputNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(bufferSize), format: recordingFormat) { [weak self] (buffer, time) in
-            self?.processAudioBuffer(buffer)
-        }
-        
         do {
+            let format = inputNode.outputFormat(forBus: 0)
+            logger.info("Audio format: \(format.description)")
+            logger.info("Sample rate: \(format.sampleRate) Hz")
+            
+            inputNode.installTap(onBus: 0, bufferSize: UInt32(bufferSize), format: format) { [weak self] buffer, time in
+                self?.processAudioBuffer(buffer)
+            }
+            
             try audioEngine.start()
             isRecording = true
+            logger.info("Audio recording started successfully")
         } catch {
-            print("Failed to start audio engine: \(error)")
+            logger.error("Failed to start recording: \(error.localizedDescription)")
         }
     }
     
@@ -101,6 +99,11 @@ class AudioProcessor: ObservableObject {
         
         let frameCount = Int(buffer.frameLength)
         var inputBuffer = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+        
+        // Debug log input levels
+        if let maxLevel = inputBuffer.max(), let minLevel = inputBuffer.min() {
+            logger.debug("Audio input levels - Max: \(maxLevel) dB, Min: \(minLevel) dB")
+        }
         
         // Ensure we have enough samples
         if inputBuffer.count < bufferSize {
@@ -131,6 +134,11 @@ class AudioProcessor: ObservableObject {
         var logMagnitudes = Array(repeating: Float(0.0), count: bufferSize / 2)
         var one: Float = 1.0
         vDSP_vdbcon(magnitudes, 1, &one, &logMagnitudes, 1, vDSP_Length(bufferSize / 2), 0)
+        
+        // Debug log spectrum stats
+        if let maxMag = logMagnitudes.max() {
+            logger.debug("FFT Spectrum - Max magnitude: \(maxMag) dB")
+        }
         
         // Update on main thread
         Task { @MainActor in
