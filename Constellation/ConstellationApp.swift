@@ -1,17 +1,18 @@
 //
-//  ConstellationApp.swift
+//  AudioVisualizerApp.swift
 //  Constellation
 //
-//  Created by Raghav Mangrola on 6/2/25.
+//  Audio Visualizer App - Real-time constellation visualization
+//  Inspired by Shazam's audio fingerprinting star constellation approach
 //
 
 import SwiftUI
 
 @main
-struct ConstellationApp: App {
+struct AudioVisualizerApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AudioVisualizerView()
         }
     }
 }
