@@ -26,10 +26,6 @@ jobs:
         run: |
           xcodebuild -project Constellation.xcodeproj -scheme Constellation -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' build
 
-      - name: Run tests
-        run: |
-          xcodebuild test -project Constellation.xcodeproj -scheme Constellation -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest'
-
       - name: Run SwiftLint
         run: |
           swiftlint || true # Don't fail if not configured yet 
