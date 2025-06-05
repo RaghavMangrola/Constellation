@@ -33,8 +33,8 @@ This document lists actionable tasks to improve the codebase, focusing on guardr
 - [ ] Ensure proper resource cleanup (e.g., audio buffers, Metal resources).
 
 ## 8. Build & Dependency Management
-- [ ] Review Xcode project settings for build warnings/errors and unused targets.
-- [ ] Audit and document external dependencies (if any).
+- [x] Review Xcode project settings for build warnings/errors and unused targets.
+- [x] Audit and document external dependencies (if any).
 
 ## 9. Security & Privacy
 - [ ] Audit handling of user data, permissions, and sensitive information.

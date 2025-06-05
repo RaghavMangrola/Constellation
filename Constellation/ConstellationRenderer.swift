@@ -40,15 +40,15 @@ class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
     private let maxStars = AudioConstants.Rendering.maxStars
     private var currentVertexCount = 0
     private var startTime: Double = 0
-    private let basePointSize = AudioConstants.Rendering.basePointSize
+    private let basePointSize: Float = AudioConstants.Rendering.basePointSize
     
     // Color palettes for different frequency ranges - cosmic theme
-    private let colorPalette = AudioConstants.Rendering.colorPalette
+    private let colorPalette: [simd_float4] = AudioConstants.Rendering.colorPalette
     
     weak var peakFinder: PeakFinder?
     
     // Logger instance for rendering
-    private let logger = Logger(subsystem: AudioConstants.Logging.graphicsSubsystem, category: AudioConstants.Logging.rendererCategory)
+    private let logger = Logger(subsystem: "com.constellation.graphics", category: "Renderer")
     
     // Add peaksWithFade property
     private var peaksWithFade: [(peak: Peak, fade: Float)] = []

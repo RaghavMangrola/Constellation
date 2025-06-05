@@ -85,7 +85,7 @@ struct AudioVisualizerView: View {
             setupComponents()
             checkMicrophonePermission()
         }
-        .onChange(of: permissionStatus) { newValue in
+        .onChange(of: permissionStatus) { _, newValue in
             if newValue == .granted {
                 // Auto-start recording when permission is granted
                 DispatchQueue.main.asyncAfter(deadline: .now() + AudioConstants.UI.autoStartDelay) {
@@ -131,10 +131,14 @@ struct AudioVisualizerView: View {
     }
     
     private func checkMicrophonePermission() {
+        // Note: Using AVAudioSession.recordPermission (deprecated in iOS 17+)
+        // Still functional in iOS 18 - can be updated to AVAudioApplication later if needed
         permissionStatus = AVAudioSession.sharedInstance().recordPermission
     }
     
     private func requestMicrophonePermission() {
+        // Note: Using AVAudioSession.requestRecordPermission (deprecated in iOS 17+)
+        // Still functional in iOS 18 - can be updated to AVAudioApplication later if needed
         AVAudioSession.sharedInstance().requestRecordPermission { [self] granted in
             DispatchQueue.main.async {
                 self.permissionStatus = granted ? .granted : .denied
