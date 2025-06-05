@@ -1,0 +1,57 @@
+# SwiftLint Configuration for Constellation
+# See: https://realm.github.io/SwiftLint/
+
+# Opt-in recommended rules
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - fatal_error_message
+  - first_where
+  - force_unwrapping
+  - let_var_whitespace
+  - nimble_operator
+  - private_action
+  - private_outlet
+  - redundant_nil_coalescing
+  - sorted_first_last
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - unused_declaration
+  - vertical_parameter_alignment_on_call
+
+# Excluded paths
+excluded:
+  - Carthage
+  - Pods
+  - fastlane
+  - .github
+  - docs
+
+# Included paths
+included:
+  - Constellation
+
+# Custom rules and thresholds
+line_length:
+  warning: 120
+  error: 160
+  ignores_comments: true
+  ignores_urls: true
+
+# Allow some flexibility for prototyping
+force_cast:
+  severity: warning
+
+# Disabled rules (can be re-enabled as codebase matures)
+disabled_rules:
+  - todo
+  - trailing_whitespace
+  - identifier_name
+  - function_body_length
+  - type_body_length
+  - file_length
+
+# Reporter type
+reporter: xcode
+
+# For more rules, see: https://realm.github.io/SwiftLint/rule-directory.html 
