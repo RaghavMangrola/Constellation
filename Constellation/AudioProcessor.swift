@@ -20,7 +20,7 @@ class AudioProcessor: ObservableObject {
     private let sampleRate: Double = AudioConstants.Format.defaultSampleRate
     
     // Logger instance for audio processing
-    private let logger = Logger(subsystem: "com.constellation.audio", category: "AudioProcessor")
+    private let logger = Logger(subsystem: AudioConstants.Logging.audioSubsystem, category: AudioConstants.Logging.audioProcessorCategory)
     
     @Published var magnitudeSpectrum: [Float] = []
     @Published var isRecording = false

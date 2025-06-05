@@ -35,17 +35,17 @@ class PeakFinder: ObservableObject {
     @Published var constellation: [Peak] = []
     
     // Peak detection parameters
-    private let minPeakHeight: Float = -60.0  // dB threshold
-    private let minPeakDistance: Int = 5      // minimum bins between peaks
-    private let maxPeaksPerFrame: Int = 10    // limit peaks per analysis frame
-    private let constellationHistory: Int = 200 // number of peaks to keep in constellation
+    private let minPeakHeight = AudioConstants.PeakDetection.minPeakHeight
+    private let minPeakDistance = AudioConstants.PeakDetection.minPeakDistance
+    private let maxPeaksPerFrame = AudioConstants.PeakDetection.maxPeaksPerFrame
+    private let constellationHistory = AudioConstants.PeakDetection.constellationHistorySize
     
     // Time-based constellation management
-    private let peakFadeTime: Double = 3.0    // seconds before peak fades from constellation
+    private let peakFadeTime = AudioConstants.PeakDetection.peakFadeTime
     private var peakHistory: [(peak:    Peak, timestamp: Double)] = []
     
     // Logger instance for peak detection
-    private let logger = Logger(subsystem: "com.constellation.audio", category: "PeakFinder")
+    private let logger = Logger(subsystem: AudioConstants.Logging.audioSubsystem, category: AudioConstants.Logging.peakFinderCategory)
     
     weak var audioProcessor: AudioProcessor?
     
@@ -146,7 +146,7 @@ class PeakFinder: ObservableObject {
     func findAdaptivePeaks(magnitudeSpectrum: [Float], timeStamp: Double) {
         guard magnitudeSpectrum.count > minPeakDistance * 4 else { return }
         
-        let windowSize = 50 // bins for local threshold calculation
+        let windowSize = AudioConstants.PeakDetection.adaptiveWindowSize // bins for local threshold calculation
         var detectedPeaks: [Peak] = []
         
         for i in windowSize..<(magnitudeSpectrum.count - windowSize) {
@@ -160,7 +160,7 @@ class PeakFinder: ObservableObject {
             // Use median as noise floor estimate
             let sortedWindow = localWindow.sorted()
             let median = sortedWindow[sortedWindow.count / 2]
-            let adaptiveThreshold = median + 10.0 // 10dB above local noise floor
+            let adaptiveThreshold = median + AudioConstants.PeakDetection.adaptiveThresholdOffset // dB above local noise floor
             
             // Check if current point is above adaptive threshold
             guard currentMagnitude > adaptiveThreshold else { continue }
