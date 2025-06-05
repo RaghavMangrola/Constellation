@@ -5,8 +5,8 @@ This document lists actionable tasks to improve the codebase, focusing on guardr
 ---
 
 ## 1. Project Structure & Organization
-- [ ] Review and refactor directory/file structure for clarity and modularity.
-- [ ] Remove unnecessary or duplicate files (e.g., stray `.DS_Store`).
+- [x] Review and refactor directory/file structure for clarity and modularity.
+- [x] Remove unnecessary or duplicate files (e.g., stray `.DS_Store`).
 
 ## 2. Documentation & Onboarding
 - [ ] Audit and update `README.md` and `SETUP.md` for accuracy and completeness.
