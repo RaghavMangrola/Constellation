@@ -37,26 +37,18 @@ class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
     private var uniformBuffer: MTLBuffer!
     
     // Rendering parameters
-    private let maxStars = 1000
+    private let maxStars = AudioConstants.Rendering.maxStars
     private var currentVertexCount = 0
     private var startTime: Double = 0
-    private let basePointSize: Float = 10.0  // Add base point size
+    private let basePointSize = AudioConstants.Rendering.basePointSize
     
     // Color palettes for different frequency ranges - cosmic theme
-    private let colorPalette: [simd_float4] = [
-        simd_float4(0.9, 0.95, 1.0, 1.0),   // Brilliant white (high freq)
-        simd_float4(0.8, 0.9, 1.0, 1.0),    // Blue-white (high-mid freq)
-        simd_float4(1.0, 1.0, 0.9, 1.0),    // Warm white (mid freq)
-        simd_float4(1.0, 0.8, 0.6, 1.0),    // Golden orange (mid-low freq)
-        simd_float4(1.0, 0.6, 0.4, 1.0),    // Orange-red (low-mid freq)
-        simd_float4(0.9, 0.5, 0.7, 1.0),    // Pink-red (low freq)
-        simd_float4(0.7, 0.4, 0.9, 1.0),    // Purple (very low freq)
-    ]
+    private let colorPalette = AudioConstants.Rendering.colorPalette
     
     weak var peakFinder: PeakFinder?
     
     // Logger instance for rendering
-    private let logger = Logger(subsystem: "com.constellation.graphics", category: "Renderer")
+    private let logger = Logger(subsystem: AudioConstants.Logging.graphicsSubsystem, category: AudioConstants.Logging.rendererCategory)
     
     // Add peaksWithFade property
     private var peaksWithFade: [(peak: Peak, fade: Float)] = []
@@ -175,8 +167,8 @@ class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
         }
         
         // Add small padding to avoid division by zero
-        let freqRange = max(0.1, maxFreq - minFreq)
-        let magRange = max(0.1, maxMag - minMag)
+        let freqRange = max(AudioConstants.Rendering.minRangePadding, maxFreq - minFreq)
+        let magRange = max(AudioConstants.Rendering.minRangePadding, maxMag - minMag)
         
         logger.debug("Actual ranges - Freq: \(minFreq)-\(maxFreq) (\(freqRange)), Mag: \(minMag)-\(maxMag) (\(magRange))")
         
@@ -195,16 +187,16 @@ class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
             let remappedMag = (peak.normalizedMagnitude - minMag) / magRange
             
             // Now apply coordinate transformation to FULL VIEWPORT PIXEL SPACE
-            let frequencySpread = 50.0   // This will create range -25 to +25
-            let magnitudeSpread = 40.0   // This will create range -20 to +20
+            let frequencySpread = AudioConstants.Rendering.frequencySpread   // This will create range -25 to +25
+            let magnitudeSpread = AudioConstants.Rendering.magnitudeSpread   // This will create range -20 to +20
             
             // Map to coordinates that span the full expected range
             var x = (remappedFreq - 0.5) * Float(frequencySpread)
             var y = (remappedMag - 0.5) * Float(magnitudeSpread)
             
             // Add controlled randomness for natural distribution
-            let seedX = sin(Float(index) * 0.1 + peak.normalizedFrequency * 10.0) * 3.0
-            let seedY = cos(Float(index) * 0.1 + peak.normalizedMagnitude * 8.0) * 3.0
+            let seedX = sin(Float(index) * AudioConstants.Rendering.randomnessFrequencyX + peak.normalizedFrequency * 10.0) * AudioConstants.Rendering.randomnessAmplitudeX
+            let seedY = cos(Float(index) * AudioConstants.Rendering.randomnessFrequencyY + peak.normalizedMagnitude * 8.0) * AudioConstants.Rendering.randomnessAmplitudeY
             
             x += seedX
             y += seedY
@@ -227,16 +219,16 @@ class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
             var color = colorPalette[min(colorIndex, colorPalette.count - 1)]
             
             // Add some color variation for more realistic stars
-            let variation = sin(Float(index) * 0.3) * 0.1
-            color.x = min(1.0, max(0.3, color.x + variation))
-            color.y = min(1.0, max(0.3, color.y + variation * 0.5))
-            color.z = min(1.0, max(0.3, color.z + variation * 0.8))
+            let variation = sin(Float(index) * AudioConstants.Rendering.colorVariationFrequency) * AudioConstants.Rendering.colorVariationAmplitude
+            color.x = min(1.0, max(AudioConstants.Rendering.colorVariationMinimum, color.x + variation))
+            color.y = min(1.0, max(AudioConstants.Rendering.colorVariationMinimum, color.y + variation * 0.5))
+            color.z = min(1.0, max(AudioConstants.Rendering.colorVariationMinimum, color.z + variation * 0.8))
             color.w = fade // Apply fade alpha
             
             // Enhanced size calculation based on magnitude and frequency
             let baseMagnitude = peak.normalizedMagnitude
             let frequencyBoost = (1.0 - peak.normalizedFrequency) * 0.3 // Lower freq = bigger stars
-            let size = 0.015 + baseMagnitude * 0.04 + frequencyBoost * 0.02
+            let size = AudioConstants.Rendering.baseSizeOffset + baseMagnitude * AudioConstants.Rendering.magnitudeSizeMultiplier + frequencyBoost * AudioConstants.Rendering.frequencySizeMultiplier
             
             // Calculate age (0.0 = new, 1.0 = old)
             let age = 1.0 - fade
@@ -287,7 +279,7 @@ class ConstellationRenderer: NSObject, ObservableObject, MTKViewDelegate {
         let uniforms = Uniforms(
             projectionMatrix: matrix_identity_float4x4,
             time: Float(CACurrentMediaTime() - startTime),
-            fadeTime: 3.0,  // Match PeakFinder's fade time
+            fadeTime: Float(AudioConstants.PeakDetection.peakFadeTime),  // Match PeakFinder's fade time
             viewportSize: simd_float2(Float(view.drawableSize.width),
                                     Float(view.drawableSize.height))
         )
@@ -338,8 +330,8 @@ struct ConstellationMetalView: UIViewRepresentable {
         let metalView = MTKView()
         metalView.device = MTLCreateSystemDefaultDevice()
         metalView.delegate = context.coordinator
-        metalView.preferredFramesPerSecond = 60
-        metalView.enableSetNeedsDisplay = false
+        metalView.preferredFramesPerSecond = AudioConstants.Rendering.preferredFramesPerSecond
+        metalView.enableSetNeedsDisplay = AudioConstants.Rendering.enableSetNeedsDisplay
         metalView.isPaused = false
         metalView.backgroundColor = UIColor.clear
         

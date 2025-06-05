@@ -26,7 +26,7 @@ This document lists actionable tasks to improve the codebase, focusing on guardr
 - [ ] Ensure edge cases and invalid inputs are handled and tested.
 
 ## 6. Configuration & Constants
-- [ ] Centralize configuration values and constants; remove hardcoded values from codebase.
+- [x] Centralize configuration values and constants; remove hardcoded values from codebase.
 
 ## 7. Performance & Resource Management
 - [ ] Identify and address performance bottlenecks (e.g., rendering, audio loops).
