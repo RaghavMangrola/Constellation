@@ -9,8 +9,8 @@ This document lists actionable tasks to improve the codebase, focusing on guardr
 - [x] Remove unnecessary or duplicate files (e.g., stray `.DS_Store`).
 
 ## 2. Documentation & Onboarding
-- [ ] Audit and update `README.md` and `SETUP.md` for accuracy and completeness.
-- [ ] Review and update documentation in `docs/` for relevance and clarity.
+- [x] Audit and update `README.md` and `SETUP.md` for accuracy and completeness.
+- [x] Review and update documentation in `docs/` for relevance and clarity.
 
 ## 3. Code Quality & Simplicity (KISS)
 - [ ] Identify and refactor overly complex functions or classes.
