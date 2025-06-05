@@ -27,8 +27,8 @@ struct AudioVisualizerView: View {
             // Background gradient
             LinearGradient(
                 gradient: Gradient(colors: [
-                    Color(red: 0.02, green: 0.02, blue: 0.08),
-                    Color(red: 0.05, green: 0.05, blue: 0.15)
+                    AudioConstants.UI.backgroundGradientTop,
+                    AudioConstants.UI.backgroundGradientBottom
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -45,9 +45,9 @@ struct AudioVisualizerView: View {
                             if audioProcessor.isRecording {
                                 Text("Recording")
                                     .foregroundColor(.white)
-                                    .padding(6)
-                                    .background(.red.opacity(0.6))
-                                    .cornerRadius(6)
+                                    .padding(AudioConstants.UI.statusOverlayPadding)
+                                    .background(.red.opacity(AudioConstants.UI.statusOverlayOpacity))
+                                    .cornerRadius(AudioConstants.UI.statusOverlayCornerRadius)
                                 
                                 Text("Peaks: \(peakFinder.currentPeaks.count)")
                                     .font(.caption)
@@ -62,10 +62,10 @@ struct AudioVisualizerView: View {
                     }
             } else {
                 // Minimal permission overlay
-                VStack(spacing: 16) {
+                VStack(spacing: AudioConstants.UI.uiSpacing) {
                     Image(systemName: permissionStatus == .denied ? "mic.slash.circle" : "waveform.circle")
-                        .font(.system(size: 40))
-                        .foregroundColor(.white.opacity(0.6))
+                        .font(.system(size: AudioConstants.UI.permissionIconSize))
+                        .foregroundColor(.white.opacity(AudioConstants.UI.permissionIconOpacity))
                     
                     if permissionStatus == .undetermined {
                         Button("Enable Microphone") {
@@ -88,7 +88,7 @@ struct AudioVisualizerView: View {
         .onChange(of: permissionStatus) { _, newValue in
             if newValue == .granted {
                 // Auto-start recording when permission is granted
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + AudioConstants.UI.autoStartDelay) {
                     audioProcessor.startRecording()
                 }
             }
